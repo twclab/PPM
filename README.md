@@ -6,7 +6,7 @@ The sequencing datasets analyzed during the current study are available in the G
 
 **R scripts**:
 
-HTHonly_10x_SeuratScript.R shows how we created our Seurat object using the 10x genomics matrix, added our sample metadata (PPM or PNM in HTH region), conducted clustering, assigned cluster identities, and created the UMAP (Figure 3B). 
+HTHonly_10x_SeuratScript.R showed how we created our Seurat object using the 10x genomics matrix, added our sample metadata (PPM or PNM in HTH region), conducted clustering, assigned cluster identities, and created the UMAP (Figure 3B). 
 
-Vision_PPMsignature.R shows how we loaded our HTH single cell Seurat object, built our plasma signature object, and applied the plasma score analysis to every cell in the HTH using the VISION function. It also showed how we plotted the violin plot in Figure 3D. 
+Vision_PPMsignature.R showed how we loaded our HTH single cell Seurat object, built our plasma signature object, and applied the plasma score analysis to every cell in the HTH using the VISION function. It also showed how we plotted the violin plot in Figure 3D. 
 
