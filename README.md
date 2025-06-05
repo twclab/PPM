@@ -1,4 +1,4 @@
-This repository contains core single-cell analysis for our paper “Circulatory proteins shape microglia state and boost phagocytosis”.
+This repository contains core analysis for our paper “Circulatory proteins shape microglia state and boost phagocytosis”.
 
 If using data or scripts of this study, please cite the following pre-print: https://www.biorxiv.org/content/10.1101/2024.09.30.615861v1
 
