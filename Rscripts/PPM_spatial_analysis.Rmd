@@ -1,0 +1,985 @@
+---
+title: "Spatial Analysis of PPM"
+output: html_document
+date: "2025-05-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load data
+
+Brain clonal section data from young mice (Yao et al., 2023, PMID: 38092916).
+
+```{r cars}
+library(glmnet)
+library(ggplot2)
+library(caret)
+library(RColorBrewer)
+library(gridExtra)  
+
+df_bulk = read.csv("./data/counttable_MGPB_HTH.csv")
+
+df_scrna = load("./data/scRNA.RData")
+df_scrna_matrix = df
+
+df_merfish_meta = read.csv("./data/new/cell_metadata_with_cluster_annotation_3_slices.csv")
+df_merfish_region = read.csv("./data/new/cell_metadata_with_parcellation_annotation_3_slices.csv")
+
+df_merfish_36 = read.csv("./data/new/extracted_slices/C57BL6J-638850.36_expression_matrix.csv")
+df_merfish_37 = read.csv("./data/new/extracted_slices/C57BL6J-638850.37_expression_matrix.csv")
+df_merfish_38 = read.csv("./data/new/extracted_slices/C57BL6J-638850.38_expression_matrix.csv")
+```
+
+### Map gene names
+```{r}
+merfish_gene = read.csv("./data/new/gene-500.csv")
+transcript_to_gene <- setNames(merfish_gene$gene_symbol, merfish_gene$gene_identifier)
+
+matching_cols <- colnames(df_merfish_36)[colnames(df_merfish_36) %in% merfish_gene$gene_identifier]
+expression_matrix <- df_merfish_36[, matching_cols, drop = FALSE]
+cell_label <- df_merfish_36[, 1]
+colnames(expression_matrix) <- transcript_to_gene[matching_cols]
+expression_matrix <- cbind(cell_label, expression_matrix)
+colnames(expression_matrix)[1] <- colnames(df_merfish_36)[1] 
+
+matching_cols_37 <- colnames(df_merfish_37)[colnames(df_merfish_37) %in% merfish_gene$gene_identifier]
+expression_matrix_37 <- df_merfish_37[, matching_cols_37, drop = FALSE]
+cell_label <- df_merfish_37[, 1]
+colnames(expression_matrix_37) <- transcript_to_gene[matching_cols_37]
+expression_matrix_37 <- cbind(cell_label, expression_matrix_37)
+colnames(expression_matrix_37)[1] <- colnames(df_merfish_37)[1] 
+
+matching_cols_38 <- colnames(df_merfish_38)[colnames(df_merfish_38) %in% merfish_gene$gene_identifier]
+expression_matrix_38 <- df_merfish_38[, matching_cols_38, drop = FALSE]
+cell_label <- df_merfish_38[, 1]
+colnames(expression_matrix_38) <- transcript_to_gene[matching_cols_38]
+expression_matrix_38 <- cbind(cell_label, expression_matrix_38)
+colnames(expression_matrix_38)[1] <- colnames(df_merfish_38)[1]
+```
+
+### Merge data
+```{r}
+df_all_36 = merge(expression_matrix, df_merfish_meta, by = "cell_label")
+df_all_36 = merge(df_all_36, df_merfish_region, by = "cell_label")
+
+df_all_37 = merge(expression_matrix_37, df_merfish_meta, by = "cell_label")
+df_all_37 = merge(df_all_37, df_merfish_region, by = "cell_label")
+
+df_all_38 = merge(expression_matrix_38, df_merfish_meta, by = "cell_label")
+df_all_38 = merge(df_all_38, df_merfish_region, by = "cell_label")
+```      
+
+### Visualize MERFISH data 
+```{r fig.width=10, fig.height=16}
+df_all_36$microglial <- ifelse(df_all_36$subclass == "334 Microglia NN", 
+                                           "Microglia", "Other")
+
+n_cell_types <- length(unique(df_all_36$class))
+
+set1_colors <- brewer.pal(9, "Set1")
+set2_colors <- brewer.pal(8, "Set2")
+set3_colors <- brewer.pal(12, "Set3")
+dark2_colors <- brewer.pal(8, "Dark2")
+
+all_colors <- c(set1_colors, dark2_colors, set2_colors, set3_colors)
+distinct_colors <- all_colors[1:min(length(all_colors), n_cell_types)]
+
+ggplot(df_all_36, aes(x = x.x, y = -y.x, color = class)) +
+  geom_point(size = 0.5, alpha = 0.7) +
+  theme_minimal() +
+  labs(x = "X coordinate", 
+       y = "Y coordinate",
+       color = "Cell Type") +
+  scale_color_manual(values = distinct_colors) +
+  theme(
+    strip.text = element_text(size = 8),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 6),
+    legend.position = "bottom",
+    legend.key.size = unit(0.5, "cm"),
+    legend.key.height = unit(0.5, "cm"),
+    legend.key.width = unit(0.5, "cm"),
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.text = element_text(size = 7, margin = margin(l = 2, r = 0, unit = "pt")),
+    legend.title = element_text(size = 7, face = "bold", margin = margin(b = 2, unit = "pt"))
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 2),
+                              ncol = 7,
+                              byrow = TRUE))+
+  theme(aspect.ratio = 0.6)
+
+ggplot(df_all_36, aes(x = x.x, y = -y.x, color = parcellation_division)) +
+  geom_point(size = 0.5, alpha = 0.7) +
+  theme_minimal() +
+  labs(x = "X coordinate", 
+       y = "Y coordinate",
+       color = "Region") +
+  scale_color_manual(values = distinct_colors) +
+  theme(
+    strip.text = element_text(size = 8),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 6),
+    legend.position = "bottom",
+    legend.key.size = unit(0.5, "cm"),
+    legend.key.height = unit(0.5, "cm"),
+    legend.key.width = unit(0.5, "cm"),
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.text = element_text(size = 7, margin = margin(l = 2, r = 0, unit = "pt")),
+    legend.title = element_text(size = 7, face = "bold", margin = margin(b = 2, unit = "pt"))
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 2),
+                              ncol = 7,
+                              byrow = TRUE))+
+  theme(aspect.ratio = 0.6)
+
+ggplot(df_all_36, aes(x = x.x, y = -y.x, color = subclass)) +
+  geom_point(size = 0.5, alpha = 0.7) +
+  theme_minimal() +
+  labs(x = "X coordinate", 
+       y = "Y coordinate",
+       color = "Cell Type") +
+  scale_color_manual(values = c(
+    "334 Microglia NN" = "darkred",
+    "333 Endo NN" = "steelblue",
+    "322 Tanycyte NN" = "goldenrod",
+    "323 Ependymal NN" = "forestgreen"
+  ),
+  na.value = "lightgray") +
+  theme(
+    strip.text = element_text(size = 8),
+    axis.title = element_text(size = 8),
+    axis.text = element_text(size = 6),
+    legend.position = "bottom",
+    legend.key.size = unit(0.5, "cm"),
+    legend.key.height = unit(0.5, "cm"),
+    legend.key.width = unit(0.5, "cm"),
+    legend.spacing.x = unit(0.1, "cm"),
+    legend.text = element_text(size = 7, margin = margin(l = 2, r = 0, unit = "pt")),
+    legend.title = element_text(size = 7, face = "bold", margin = margin(b = 2, unit = "pt"))
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 2),
+                              ncol = 7,
+                              byrow = TRUE))+
+  theme(aspect.ratio = 0.6)
+
+df_all_36$region_color <- "gray80" 
+
+df_all_36$region_color[df_all_36$parcellation_division == "HY" & df_all_36$parcellation_structure == "ARH"] <- "darkred"
+df_all_36$region_color[df_all_36$parcellation_division == "HY" & df_all_36$parcellation_structure == "ME"] <- "deepskyblue"
+df_all_36$region_color[df_all_36$parcellation_division == "HY" & df_all_36$parcellation_structure == "DMH"] <- "orange"
+df_all_36$region_color[df_all_36$parcellation_division == "HY" & df_all_36$parcellation_structure == "TU"] <- "green3"
+df_all_36$region_color[df_all_36$parcellation_division == "HY" & df_all_36$parcellation_structure == "LHA"] <- "pink"
+df_all_36$region_color[df_all_36$parcellation_division == "HY" & df_all_36$parcellation_structure == "VMH"] <- "yellow3"
+
+df_all_36$region_label <- NA_character_
+hypothalamic_regions <- c("ARH", "ME", "DMH", "TU", "LHA", "VMH")
+for (region in hypothalamic_regions) {
+  df_all_36$region_label[df_all_36$parcellation_division == "HY" & 
+                        df_all_36$parcellation_structure == region] <- region
+}
+
+# Get all unique subregions in HY
+hy_regions <- unique(df_all_36$parcellation_structure[df_all_36$parcellation_division == "HY"])
+
+hy_colors <- distinct_colors[1:length(hy_regions)]
+names(hy_colors) <- hy_regions
+
+ggplot(df_all_36, aes(x = x.x, y = -y.x)) +
+  # All non-HY cells in gray
+  geom_point(data = subset(df_all_36, parcellation_division != "HY"), 
+             color = "gray80", size = 0.5, alpha = 0.5) +
+  # HY cells colored by subregion
+  geom_point(data = subset(df_all_36, parcellation_division == "HY"), 
+             aes(color = parcellation_structure), size = 0.5, alpha = 0.8) +
+  scale_color_manual(
+    name = "HY Subregions",
+    values = hy_colors
+  ) +
+  theme_minimal() +
+  labs(x = "X coordinate", y = "Y coordinate", 
+       title = "HY Subregions") +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 7),
+    legend.title = element_text(size = 8, face = "bold")
+  ) +
+  guides(color = guide_legend(override.aes = list(size = 2), ncol = 5)) +
+  theme(aspect.ratio = 0.6)
+```
+
+### Intersection of RNA-seq and MERFISH genes
+
+```{r}
+gene_rna = df_bulk$Feature
+gene_merfish = colnames(expression_matrix)[2:ncol(expression_matrix)]
+intersect_genes = intersect(gene_rna, gene_merfish)
+cat("Number of intersecting genes btw bulk-seq and MERFISH:", length(intersect_genes), "\n")
+```
+
+### Process bulk sequencing data
+```{r}
+# Extract intersection genes from df_bulk
+df_rna = df_bulk[df_bulk$Feature %in% intersect_genes, ]
+df_rna_matrix = df_rna[, 2:ncol(df_rna)]
+
+df_rna_matrix_t = t(df_rna_matrix)
+df_rna_matrix_t = as.data.frame(df_rna_matrix_t)
+colnames(df_rna_matrix_t) = df_rna$Feature
+
+# Create outcome variable based on Pos and Neg annotation
+outcome <- ifelse(grepl("Pos", rownames(df_rna_matrix_t)), "Positive", "Negative")
+outcome <- as.factor(outcome)
+
+# Log 10 + normalize
+df_rna_matrix_t_log = log10(df_rna_matrix_t + 1)
+
+# Remove near-zero variance features for scaling
+nzv_features <- nearZeroVar(df_rna_matrix_t_log)
+all_features <- 1:ncol(df_rna_matrix_t_log)
+features_to_scale <- all_features[!all_features %in% nzv_features]
+df_rna_matrix_t_scaled <- df_rna_matrix_t_log
+
+if(length(features_to_scale) > 0) {
+  df_rna_matrix_t_scaled[, features_to_scale] <- scale(df_rna_matrix_t_log[, features_to_scale])
+}
+```
+
+### Build model to classiry PPM based on bulk sequencing data
+```{r, warning=FALSE}
+set.seed(1)
+lasso_model = cv.glmnet(as.matrix(df_rna_matrix_t_scaled), 
+                        outcome, 
+                        family = "binomial", 
+                        type.measure = "class",
+                        standardize = TRUE,
+                        alpha = 0.5, 
+                        nfolds = 3)
+```
+
+### Apply bulk-sequencing-based model to MERFISH data
+```{r}
+df_gene_matrix_36_bulk = df_all_36[, colnames(df_all_36) %in% intersect_genes]
+df_gene_matrix_36_log_bulk = log10(df_gene_matrix_36_bulk + 1)
+df_gene_matrix_36_scaled_bulk = scale(df_gene_matrix_36_log_bulk, center = TRUE, scale = TRUE)
+
+df_gene_matrix_37_bulk = df_all_37[, colnames(df_all_37) %in% intersect_genes]
+df_gene_matrix_37_log_bulk = log10(df_gene_matrix_37_bulk + 1)
+df_gene_matrix_37_scaled_bulk = scale(df_gene_matrix_37_log_bulk, center = TRUE, scale = TRUE)
+
+df_gene_matrix_38_bulk = df_all_38[, colnames(df_all_38) %in% intersect_genes]
+df_gene_matrix_38_log_bulk = log10(df_gene_matrix_38_bulk + 1)
+df_gene_matrix_38_scaled_bulk = scale(df_gene_matrix_38_log_bulk, center = TRUE, scale = TRUE)
+
+predictions_36_bulk <- predict(lasso_model, 
+                       newx = as.matrix(df_gene_matrix_36_scaled_bulk), 
+                       s = "lambda.min", 
+                       type = "response")
+df_all_36$score_bulk = predictions_36_bulk
+
+predictions_36_outcome_bulk = predict(lasso_model, 
+                       newx = as.matrix(df_gene_matrix_36_scaled_bulk), 
+                       s = "lambda.min", 
+                       type = "class")
+
+predictions_37_bulk <- predict(lasso_model, 
+                       newx = as.matrix(df_gene_matrix_37_scaled_bulk), 
+                       s = "lambda.min", 
+                       type = "response")
+df_all_37$score_bulk = predictions_37_bulk
+
+predictions_38_bulk <- predict(lasso_model, 
+                       newx = as.matrix(df_gene_matrix_38_scaled_bulk), 
+                       s = "lambda.min", 
+                       type = "response")
+df_all_38$score_bulk = predictions_38_bulk
+```
+
+### Bulk-sequencing-based model score visualization
+### Visualization of plasma score distribution in microglia within HTH
+```{r}
+microglia_hy <- subset(df_all_36, subclass == "334 Microglia NN" & parcellation_division == "HY")
+
+# Get all other cells (not microglia in HY)
+other_cells <- subset(df_all_36, !(subclass == "334 Microglia NN" & parcellation_division == "HY"))
+
+# Filter for HY microglia and other cells
+microglia_hy <- subset(df_all_36, subclass == "334 Microglia NN" & parcellation_division == "HY")
+other_cells <- subset(df_all_36, !(subclass == "334 Microglia NN" & parcellation_division == "HY"))
+
+point_x <- 5.5
+point_y <- -8.5
+
+all_hy_cells <- subset(df_all_36, parcellation_division == "HY")
+
+hy_distribution = ggplot() +
+  # First layer: All other cells in light gray
+  geom_point(data = other_cells,
+             aes(x = x.x, y = -y.x),
+             color = "gray85", size = 0.07, alpha = 0.2) +
+  # Second layer: All HY cells in dark gray
+  geom_point(data = all_hy_cells,
+             aes(x = x.x, y = -y.x),
+             color = "gray70", size = 0.08, alpha = 0.2) +
+  # Third layer: HY microglia cells colored by PPM score (on top)
+  geom_point(data = microglia_hy,
+             aes(x = x.x, y = -y.x, color = score_bulk),
+             alpha = 0.9, size = 1.5) +
+  # Fourth layer: Add reference point with annotation
+  geom_point(data = data.frame(x = point_x, y = point_y),
+             aes(x = x, y = y),
+             color = "black", size = 3, shape = 16) +
+  annotate("text", x = point_x, y = point_y - 0.6, label = "Median Eminence", 
+           hjust = 0.5, vjust = 0, size = 3, fontface = "bold") +
+  scale_color_gradientn(
+    name = "PPM Score", 
+    colors = c("steelblue", "darkgreen", "#fff75f", "darkred"),
+    values = c(0, 0.3, 0.6, 1),
+    limits = c(0, 1)
+  ) +
+  scale_x_continuous(breaks = seq(0, 11, by = 2), minor_breaks = seq(0, 11, by = 1)) +
+  scale_y_continuous(breaks = seq(-10, -1, by = 2), minor_breaks = seq(-10, -1, by = 1)) +
+  coord_cartesian(xlim = c(0, 11), ylim = c(-10, -1)) +
+  labs(x = "X coordinate", 
+       y = "Y coordinate", 
+       title = "PPM Score Distribution in Hypothalamic Microglia",
+       subtitle = paste0("Microglia cells in HY region (n = ", nrow(microglia_hy), ")")) +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    plot.title = element_text(size = 12, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "bottom",
+    legend.key.size = unit(0.5, "cm"),
+    legend.key.height = unit(0.5, "cm"),
+    legend.key.width = unit(0.5, "cm"),
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.3)
+  ) +
+  guides(
+    color = guide_colorbar(title = "PPM Score", 
+                          barwidth = 10, 
+                          barheight = 0.6,
+                          title.position = "left",
+                          title.vjust = 0.8)
+  ) +
+  theme(aspect.ratio = 0.7)
+
+print(hy_distribution)
+
+ggsave("HY_microglia_PPM_scores.pdf", 
+       plot = hy_distribution,
+       width = 10, height = 7, 
+       dpi = 300, 
+       bg = "white",
+       device = "pdf")
+
+ggsave("HY_microglia_PPM_scores.png", 
+       plot = hy_distribution,
+       width = 10, height = 7, 
+       dpi = 300, 
+       bg = "white")
+
+ggsave("HY_microglia_PPM_scores.svg", 
+       plot = hy_distribution,
+       width = 10, height = 7, 
+       bg = "white",
+       device = "svg")
+
+hy_cells <- subset(df_all_36, parcellation_division == "HY")
+non_hy_cells <- subset(df_all_36, parcellation_division != "HY")
+
+hy_regions <- unique(hy_cells$parcellation_structure)
+
+hy_subregion_colors <- c(
+  "ZI" = "darkgreen",
+  "STN" = "gold",
+  "LHA" = "salmon",      
+  "TU" = "#B15928",      
+  "PSTN" = "darkblue",
+  "VMH" = "orange",     
+  "PH" = "lightgreen",      
+  "DMH" = "lightblue",    
+  "HY-unassigned" = "darkgray",  
+  "ARH" = "darkred",     
+  "ME" = "#1F78B4",     
+  "PVi" = "#F781BF"
+)
+
+hy_subregion = ggplot() +
+  # First layer: All non-HY cells in light gray
+  geom_point(data = non_hy_cells,
+             aes(x = x.x, y = -y.x),
+             color = "gray85", size = 0.07, alpha = 0.2) +
+  # Second layer: ALL HY cells colored by subregion
+  geom_point(data = hy_cells,
+             aes(x = x.x, y = -y.x, color = parcellation_structure),
+             alpha = 0.9, size = 0.07) +
+  # Color scale for HY subregions
+  scale_color_manual(
+    name = "HY Subregion",
+    values = hy_subregion_colors,
+    na.value = "darkgray"
+  ) +
+  scale_x_continuous(breaks = seq(0, 11, by = 2), minor_breaks = seq(0, 11, by = 1)) +
+  scale_y_continuous(breaks = seq(-10, -1, by = 2), minor_breaks = seq(-10, -1, by = 1)) +
+  coord_cartesian(xlim = c(0, 11), ylim = c(-10, -1)) +
+  labs(x = "X coordinate", 
+       y = "Y coordinate", 
+       title = "Hypothalamic Subregions",
+       subtitle = paste0("All cells in HY region (n = ", nrow(hy_cells), ")")) +
+  theme_minimal() +
+  theme(
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    plot.title = element_text(size = 12, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "bottom",
+    legend.key.size = unit(0.4, "cm"),
+    legend.key.height = unit(0.4, "cm"),
+    legend.key.width = unit(0.4, "cm"),
+    legend.text = element_text(size = 7),
+    legend.title = element_text(size = 8, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.3)
+  ) +
+  guides(
+    color = guide_legend(
+      title = "HY Subregion",
+      override.aes = list(size = 3),
+      ncol = 4,
+      byrow = TRUE
+    )
+  ) +
+  theme(aspect.ratio = 0.7)
+
+
+print(hy_subregion)
+
+ggsave("HY_subregion.pdf", 
+       plot = hy_subregion,
+       width = 10, height = 7, 
+       dpi = 300, 
+       bg = "white",
+       device = "pdf")
+
+ggsave("HY_subregion.png", 
+       plot = hy_subregion,
+       width = 10, height = 7, 
+       dpi = 300, 
+       bg = "white")
+
+ggsave("HY_subregion.svg", 
+       plot = hy_subregion,
+       width = 10, height = 7, 
+       bg = "white",
+       device = "svg")
+
+hy_microglia <- subset(df_all_36, subclass == "334 Microglia NN" & 
+                      parcellation_division == "HY" & 
+                      parcellation_structure != "HY-unassigned")
+
+# Calculate average PPM scores by HY subregion for microglia only
+hy_subregion_scores <- aggregate(score_bulk ~ parcellation_structure, 
+                                data = hy_microglia, 
+                                FUN = function(x) c(
+                                  mean = mean(x, na.rm = TRUE),
+                                  se = sd(x, na.rm = TRUE) / sqrt(length(x[!is.na(x)])),
+                                  count = length(x[!is.na(x)])
+                                ))
+
+hy_subregion_scores <- do.call(data.frame, hy_subregion_scores)
+colnames(hy_subregion_scores) <- c("subregion", "mean", "se", "count")
+
+hy_subregion_scores$lower <- hy_subregion_scores$mean - 1.96 * hy_subregion_scores$se
+hy_subregion_scores$upper <- hy_subregion_scores$mean + 1.96 * hy_subregion_scores$se
+
+hy_subregion_scores <- hy_subregion_scores[order(-hy_subregion_scores$mean), ]
+
+df_36_subset <- df_all_36[, c("subclass", "parcellation_division", "parcellation_structure", "score_bulk")]
+df_36_subset$slice <- "36"
+
+df_37_subset <- df_all_37[, c("subclass", "parcellation_division", "parcellation_structure", "score_bulk")]
+df_37_subset$slice <- "37"
+
+df_38_subset <- df_all_38[, c("subclass", "parcellation_division", "parcellation_structure", "score_bulk")]
+df_38_subset$slice <- "38"
+
+# Combine all three slices with only essential columns
+df_combined <- rbind(df_36_subset, df_37_subset, df_38_subset)
+
+# Filter for only microglia in HY region across all slices, excluding HY-unassigned
+hy_microglia_combined <- subset(df_combined, subclass == "334 Microglia NN" & 
+                               parcellation_division == "HY" & 
+                               parcellation_structure != "HY-unassigned")
+
+# Calculate average PPM scores by HY subregion for microglia across all slices
+hy_subregion_scores_combined <- aggregate(score_bulk ~ parcellation_structure, 
+                                         data = hy_microglia_combined, 
+                                         FUN = function(x) c(
+                                           mean = mean(x, na.rm = TRUE),
+                                           se = sd(x, na.rm = TRUE) / sqrt(length(x[!is.na(x)])),
+                                           count = length(x[!is.na(x)])
+                                         ))
+
+hy_subregion_scores_combined <- do.call(data.frame, hy_subregion_scores_combined)
+colnames(hy_subregion_scores_combined) <- c("subregion", "mean", "se", "count")
+
+# Filter for subregions with n >= 12
+hy_subregion_scores_filtered <- hy_subregion_scores_combined[hy_subregion_scores_combined$count >= 12, ]
+
+# Add confidence intervals
+hy_subregion_scores_filtered$lower <- hy_subregion_scores_filtered$mean - 1.96 * hy_subregion_scores_filtered$se
+hy_subregion_scores_filtered$upper <- hy_subregion_scores_filtered$mean + 1.96 * hy_subregion_scores_filtered$se
+
+library(broom)
+
+hy_microglia_filtered <- subset(hy_microglia_combined, parcellation_structure %in% hy_subregion_scores_filtered$subregion)
+
+anova_result <- aov(score_bulk ~ parcellation_structure, data = hy_microglia_filtered)
+anova_p <- summary(anova_result)[[1]][["Pr(>F)"]][1]
+
+pairwise_results <- pairwise.t.test(hy_microglia_filtered$score_bulk, 
+                                   hy_microglia_filtered$parcellation_structure, 
+                                   p.adjust.method = "bonferroni")
+
+anova_annotation <- paste0("ANOVA p = ", 
+                          ifelse(anova_p < 0.001, "< 0.001", 
+                                sprintf("%.3f", anova_p)))
+
+hy_subregion_avg_score <- ggplot(hy_subregion_scores_filtered, aes(x = reorder(subregion, -mean), y = mean, fill = subregion)) +
+  geom_bar(stat = "identity", width = 0.7, alpha = 0.9) +
+  geom_errorbar(aes(ymin = lower, ymax = upper), width = 0.2, color = "black") +
+  scale_fill_manual(values = hy_subregion_colors) +
+  labs(
+    x = "Hypothalamic Subregion",
+    y = "Mean PPM Score",
+    title = "Average PPM Score in Microglia by Hypothalamic Subregion",
+    subtitle = paste0("Microglia cells from slices 36-38 (subregions with n ≥ 12, total n = ", sum(hy_subregion_scores_filtered$count), ")")
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    axis.title = element_text(size = 11),
+    plot.title = element_text(size = 13, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    legend.position = "none",
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.3)
+  ) +
+  geom_text(aes(label = paste0("n=", count)), vjust = -0.8, size = 3, color = "black") +
+  annotate("text", 
+           x = length(hy_subregion_scores_filtered$subregion)/2, 
+           y = max(hy_subregion_scores_filtered$upper) * 1.1,
+           label = anova_annotation, 
+           size = 3.5, fontface = "bold") +
+  ylim(0, max(hy_subregion_scores_filtered$upper) * 1.25)
+
+print(hy_subregion_avg_score)
+
+ggsave("HY_subregion_score.pdf", 
+       plot = hy_subregion_avg_score,
+       width = 10, height = 7, 
+       dpi = 300, 
+       bg = "white",
+       device = "pdf")
+
+ggsave("HY_subregion_score.png", 
+       plot = hy_subregion_avg_score,
+       width = 10, height = 7, 
+       dpi = 300, 
+       bg = "white")
+
+ggsave("HY_subregion_score.svg", 
+       plot = hy_subregion_avg_score,
+       width = 10, height = 7, 
+       bg = "white",
+       device = "svg")
+```
+
+### Distance of PPM and PNM to the nearest endothelial cells in three regions (HY, HPF, TH)
+
+```{r}
+microglia_cells <- subset(df_all_36, subclass == "334 Microglia NN")
+threshold <- quantile(microglia_cells$score_bulk, 0.5, na.rm = TRUE)
+
+predictions_36_outcome_bulk <- ifelse(predictions_36_bulk >= threshold, "Positive", "Negative")
+df_all_36$predicted_outcome_bulk = predictions_36_outcome_bulk
+
+microglia_cells <- subset(df_all_36, subclass == "334 Microglia NN")
+endo_cells <- subset(df_all_36, subclass == "333 Endo NN")
+
+regions_of_interest <- c("HY", "HPF", "TH")
+microglia_filtered <- subset(microglia_cells, parcellation_division %in% regions_of_interest)
+endo_filtered <- endo_cells 
+
+calc_distance <- function(x1, y1, x2, y2) {
+  sqrt((x1 - x2)^2 + (y1 - y2)^2)
+}
+
+microglia_distances <- data.frame()
+
+for(i in 1:nrow(microglia_filtered)) {
+  micro_x <- microglia_filtered$x.x[i]
+  micro_y <- microglia_filtered$y.x[i]
+  micro_region <- microglia_filtered$parcellation_division[i]
+  
+  region_endo <- endo_filtered
+  
+  if (nrow(region_endo) > 0) {
+    distances <- calc_distance(micro_x, micro_y, region_endo$x.x, region_endo$y.x)
+    min_distance <- min(distances)
+    
+    microglia_distances <- rbind(microglia_distances, data.frame(
+      cell_id = microglia_filtered$cell_label[i],
+      region = micro_region,
+      predicted_outcome = microglia_filtered$predicted_outcome_bulk[i],
+      distance_to_nearest_endo = min_distance,
+      x = micro_x,
+      y = micro_y
+    ))
+  }
+}
+
+regions <- unique(microglia_distances$region)
+p_values <- data.frame()
+
+for(region in regions) {
+  region_data <- microglia_distances[microglia_distances$region == region,]
+
+  pos_distances <- region_data$distance_to_nearest_endo[region_data$predicted_outcome == "Positive"]
+  neg_distances <- region_data$distance_to_nearest_endo[region_data$predicted_outcome == "Negative"]
+  
+  if(length(pos_distances) > 0 & length(neg_distances) > 0) {
+    t_test <- t.test(pos_distances, neg_distances)
+    max_y <- max(c(pos_distances, neg_distances), na.rm = TRUE)
+    
+    p_values <- rbind(p_values, data.frame(
+      region = region,
+      p_label = paste0("p = ", sprintf("%.3f", t_test$p.value)),
+      y_pos = max_y * 1.15
+    ))
+    
+  }
+}
+
+calculate_slice_distances <- function(df_slice, slice_num) {
+  # Calculate threshold for this specific slice
+  microglia_scores <- subset(df_slice, subclass == "334 Microglia NN")$score_bulk
+  threshold <- quantile(microglia_scores, 0.5, na.rm = TRUE)
+  
+  predictions_outcome <- ifelse(df_slice$score_bulk >= threshold, "Positive", "Negative")
+  df_slice$predicted_outcome_bulk <- predictions_outcome
+  
+  microglia_cells <- subset(df_slice, subclass == "334 Microglia NN")
+  endo_cells <- subset(df_slice, subclass == "333 Endo NN")
+  
+  regions_of_interest <- c("HY", "HPF", "TH")
+  microglia_filtered <- subset(microglia_cells, parcellation_division %in% regions_of_interest)
+  
+  # Calculate distances within this slice
+  microglia_distances <- data.frame()
+  
+  for(i in 1:nrow(microglia_filtered)) {
+    micro_x <- microglia_filtered$x.x[i]
+    micro_y <- microglia_filtered$y.x[i]
+    micro_region <- microglia_filtered$parcellation_division[i]
+    
+    if (nrow(endo_cells) > 0) {
+      distances <- calc_distance(micro_x, micro_y, endo_cells$x.x, endo_cells$y.x)
+      min_distance <- min(distances)
+      
+      microglia_distances <- rbind(microglia_distances, data.frame(
+        cell_id = microglia_filtered$cell_label[i],
+        slice = slice_num,
+        region = micro_region,
+        predicted_outcome = microglia_filtered$predicted_outcome_bulk[i],
+        distance_to_nearest_endo = min_distance,
+        x = micro_x,
+        y = micro_y,
+        threshold_used = threshold
+      ))
+    }
+  }
+  return(microglia_distances)
+}
+
+# Distance calculation function
+calc_distance <- function(x1, y1, x2, y2) {
+  sqrt((x1 - x2)^2 + (y1 - y2)^2)
+}
+
+distances_36 <- calculate_slice_distances(df_all_36, "36")
+distances_37 <- calculate_slice_distances(df_all_37, "37")
+distances_38 <- calculate_slice_distances(df_all_38, "38")
+
+microglia_distances <- rbind(distances_36, distances_37, distances_38)
+
+regions <- unique(microglia_distances$region)
+p_values <- data.frame()
+
+for(region in regions) {
+  region_data <- microglia_distances[microglia_distances$region == region,]
+  
+  pos_distances <- region_data$distance_to_nearest_endo[region_data$predicted_outcome == "Positive"]
+  neg_distances <- region_data$distance_to_nearest_endo[region_data$predicted_outcome == "Negative"]
+  
+  if(length(pos_distances) > 0 & length(neg_distances) > 0) {
+    t_test <- t.test(pos_distances, neg_distances)
+    max_y <- max(c(pos_distances, neg_distances), na.rm = TRUE)
+    
+    p_values <- rbind(p_values, data.frame(
+      region = region,
+      p_label = paste0("p = ", sprintf("%.3f", t_test$p.value)),
+      y_pos = max_y * 1.15
+    ))
+    
+  }
+}
+
+# Update region labels and outcome labels in the data
+microglia_distances_clean <- microglia_distances
+microglia_distances_clean$region_label <- factor(microglia_distances_clean$region,
+                                                levels = c("HY", "TH", "HPF"),
+                                                labels = c("HTH", "TH", "HPF"))
+microglia_distances_clean$outcome_label <- factor(microglia_distances_clean$predicted_outcome,
+                                                 levels = c("Positive", "Negative"),
+                                                 labels = c("PPM", "PNM"))
+p_values_clean <- p_values
+p_values_clean$region_label <- factor(p_values_clean$region,
+                                     levels = c("HY", "TH", "HPF"),
+                                     labels = c("HTH", "TH", "HPF"))
+
+endo_dist = ggplot(microglia_distances_clean, aes(x = outcome_label, y = distance_to_nearest_endo, fill = outcome_label)) +
+  geom_boxplot(alpha = 0.8, outlier.shape = NA) +
+  facet_wrap(~region_label, scales = "free_x") +
+  scale_fill_manual(values = c("PPM" = "darkred", "PNM" = "steelblue")) +
+  geom_text(data = p_values_clean, 
+            aes(x = 1.5, y = 0.11, label = p_label), 
+            inherit.aes = FALSE, size = 3) +
+  stat_summary(fun = median, geom = "text", 
+               aes(label = sprintf("%.3f", ..y..)), 
+               position = position_dodge(width = 0.75),
+               vjust = -0.5, size = 3, color = "white", fontface = "bold") +
+  coord_cartesian(ylim = c(0, 0.12)) +
+  labs(
+    title = "Distance from Microglia to Nearest Endothelial Cell",
+    subtitle = "Comparison between PPM and PNM by Brain Region",
+    x = "",
+    y = "Distance to Nearest Endothelial Cell",
+    fill = ""
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    strip.text = element_text(size = 10, face = "bold"),
+    legend.position = "none",  
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.3)
+  )
+
+print(endo_dist)
+
+ggsave("endo_dist.pdf", 
+       plot = endo_dist,
+       width = 5, height = 6, 
+       dpi = 300, 
+       bg = "white",
+       device = "pdf")
+
+ggsave("endo_dist.png", 
+       plot = endo_dist,
+       width = 6, height = 6, 
+       dpi = 300, 
+       bg = "white")
+
+ggsave("endo_dist.svg", 
+       plot = endo_dist,
+       width = 6, height = 6, 
+       bg = "white",
+       device = "svg")
+```
+
+
+### Correlation between plasma score and microglial distance to the median eminence
+```{r}
+# Filter for HY microglia and other cells
+microglia_hy <- subset(df_all_36, subclass == "334 Microglia NN" & parcellation_division == "HY")
+other_cells <- subset(df_all_36, !(subclass == "334 Microglia NN" & parcellation_division == "HY"))
+
+point_x <- 5.5
+point_y <- 8.5
+
+# Extract the microglia cells in hypothalamus (HY)
+hy_microglia_cells <- subset(df_all_36, subclass == "334 Microglia NN" & parcellation_division == "HY")
+
+# Calculate Euclidean distance from each HY microglia cell to the point 
+hy_microglia_cells$distance_to_point <- sqrt((hy_microglia_cells$x.x - point_x)^2 + (hy_microglia_cells$y.x - point_y)^2)
+
+# Calculate correlation coefficient and p-value for HY microglia
+cor_test <- cor.test(hy_microglia_cells$distance_to_point, hy_microglia_cells$score_bulk, 
+                    method = "pearson")
+r_value <- round(cor_test$estimate, 3)
+p_value <- cor_test$p.value
+p_value_formatted <- ifelse(p_value < 0.001, "p < 0.001", 
+                          ifelse(p_value < 0.01, "p < 0.01",
+                               ifelse(p_value < 0.05, "p < 0.05",
+                                    paste0("p = ", round(p_value, 3)))))
+
+# Function to create HY microglia plot with reference point
+plot_hy_microglia <- function(df_data, point_x, point_y, slice_name = "") {
+  # Filter for HY microglia and other cells
+  microglia_hy <- subset(df_data, subclass == "334 Microglia NN" & parcellation_division == "HY")
+  other_cells <- subset(df_data, !(subclass == "334 Microglia NN" & parcellation_division == "HY"))
+  
+  ggplot() +
+    # First layer: All other cells in light gray
+    geom_point(data = other_cells,
+               aes(x = x.x, y = y.x),
+               color = "gray85", size = 0.4, alpha = 0.2) +
+    # Second layer: HY microglia cells colored by PPM score
+    geom_point(data = microglia_hy,
+               aes(x = x.x, y = y.x, color = score_bulk),
+               alpha = 0.9, size = 1.8) +
+    # Third layer: Add reference point with annotation
+    geom_point(data = data.frame(x = point_x, y = point_y),
+               aes(x = x, y = y),
+               color = "black", size = 3, shape = 16) +
+    annotate("text", x = point_x, y = point_y + 0.3, label = "Median Eminence", 
+             hjust = 0.5, vjust = 0, size = 3, fontface = "bold") +
+    scale_color_gradientn(
+      name = "PPM Score", 
+      colors = c("steelblue", "darkgreen", "#fff75f", "darkred"),
+      values = c(0, 0.3, 0.6, 1),
+      limits = c(0, 1)
+    ) +
+    labs(x = "X coordinate", 
+         y = "Y coordinate", 
+         title = paste("PPM Score Distribution in Hypothalamic Microglia", slice_name),
+         subtitle = paste0("Microglia cells in HY region (n = ", nrow(microglia_hy), ")")) +
+    theme_minimal() +
+    theme(
+      axis.title = element_text(size = 10),
+      axis.text = element_text(size = 8),
+      plot.title = element_text(size = 12, face = "bold"),
+      plot.subtitle = element_text(size = 10),
+      legend.position = "bottom",
+      legend.key.size = unit(0.5, "cm"),
+      legend.key.height = unit(0.5, "cm"),
+      legend.key.width = unit(0.5, "cm"),
+      legend.text = element_text(size = 8),
+      legend.title = element_text(size = 9, face = "bold")
+    ) +
+    guides(
+      color = guide_colorbar(title = "PPM Score", barwidth = 12, barheight = 0.6)
+    ) +
+    theme(aspect.ratio = 0.6)
+}
+
+prepare_slice_data <- function(df_data, point_x, point_y, slice_name) {
+  # Filter for HY microglia cells
+  hy_microglia_cells <- subset(df_data, subclass == "334 Microglia NN" & parcellation_division == "HY")
+  
+  # Calculate distance to ME point (slice-specific coordinates)
+  hy_microglia_cells$distance_to_point <- sqrt((hy_microglia_cells$x.x - point_x)^2 + (hy_microglia_cells$y.x - point_y)^2)
+  
+  hy_microglia_cells$slice <- slice_name
+  
+  return(hy_microglia_cells[, c("distance_to_point", "score_bulk", "slice")])
+}
+
+me_coords <- list(
+  "36" = list(x = 5.5, y = 8.5),
+  "37" = list(x = 5.5, y = 8.2),
+  "38" = list(x = 5.5, y = 8.5)
+)
+
+# Prepare data for all slices with their respective ME coordinates
+data_36 <- prepare_slice_data(df_all_36, me_coords[["36"]]$x, me_coords[["36"]]$y, "Slice 36")
+data_37 <- prepare_slice_data(df_all_37, me_coords[["37"]]$x, me_coords[["37"]]$y, "Slice 37")
+data_38 <- prepare_slice_data(df_all_38, me_coords[["38"]]$x, me_coords[["38"]]$y, "Slice 38")
+
+combined_data <- rbind(data_36, data_37, data_38)
+
+overall_cor <- cor.test(combined_data$distance_to_point, combined_data$score_bulk, method = "pearson")
+r_value <- round(overall_cor$estimate, 3)
+p_value <- overall_cor$p.value
+p_value_formatted <- ifelse(p_value < 0.001, "p < 0.001", 
+                          ifelse(p_value < 0.01, "p < 0.01",
+                               ifelse(p_value < 0.05, "p < 0.05",
+                                    paste0("p = ", round(p_value, 3)))))
+
+me_dist = ggplot(combined_data, aes(x = distance_to_point, y = score_bulk)) +
+  # Points colored by PPM score only
+  geom_point(aes(color = score_bulk), alpha = 0.7, size = 2) +
+  # Single overall regression line
+  geom_smooth(method = "lm", color = "black", se = TRUE, linewidth = 1) +
+  # Color scale for PPM scores
+  scale_color_gradientn(
+    name = "PPM Score", 
+    colors = c("steelblue", "darkgreen", "#fff75f", "darkred"),
+    values = c(0, 0.3, 0.6, 1),
+    limits = c(0, 1)
+  ) +
+  annotate("text", 
+           x = max(combined_data$distance_to_point) * 0.95, 
+           y = max(combined_data$score_bulk) * 0.95,
+           label = paste0("r = ", r_value, ", ", p_value_formatted),
+           hjust = 1, vjust = 1, size = 4, fontface = "bold") +
+  labs(
+    x = "Distance to Median Eminence", 
+    y = "PPM Score", 
+    title = "Relationship Between PPM Score and Distance to ME",
+    subtitle = paste0("Hypothalamic (HTH) Microglia cells (n = ", nrow(combined_data), ")")
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold"),
+    plot.subtitle = element_text(size = 10),
+    axis.title = element_text(size = 10),
+    axis.text = element_text(size = 8),
+    legend.position = "right",
+    legend.title = element_text(size = 9, face = "bold"),
+    legend.text = element_text(size = 8),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(color = "black", size = 0.5),
+    axis.ticks = element_line(color = "black", size = 0.3)
+  )
+
+print(me_dist)
+
+ggsave("me_dist.pdf", 
+       plot = me_dist,
+       width = 7, height = 7, 
+       dpi = 300, 
+       bg = "white",
+       device = "pdf")
+
+ggsave("me_dist.png", 
+       plot = me_dist,
+       width = 6, height = 6, 
+       dpi = 300, 
+       bg = "white")
+
+ggsave("me_dist.svg",
+       plot = me_dist,
+       width = 6, height = 6, 
+       bg = "white",
+       device = "svg")
+
+```
+
