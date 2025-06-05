@@ -10,4 +10,4 @@ HTHonly_10x_SeuratScript.R showed how we created our Seurat object using the 10x
 
 Vision_PPMsignature.R showed how we loaded our HTH single cell Seurat object, built our plasma signature object, and applied the plasma score analysis to every cell in the HTH using the VISION function. It also showed how we plotted the violin plot in Figure 3D. 
 
-PPM_spatial_analysis.Rmd showed how we conducted the plasma score spatial analysis. 
+PPM_spatial_analysis.Rmd showed how we conducted the plasma score spatial analysis in Figure S8L and S8M.
