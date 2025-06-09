@@ -1,8 +1,8 @@
-This repository contains core analysis for our paper “Circulatory proteins shape microglia state and boost phagocytosis”.
+![image](https://github.com/user-attachments/assets/b8aefcbb-050e-488b-8bb1-9ea5d6639437)This repository contains core analysis for our paper “Circulatory proteins shape microglia state and boost phagocytosis”.
 
 If using data or scripts of this study, please cite the following pre-print: https://www.biorxiv.org/content/10.1101/2024.09.30.615861v1
 
-The sequencing datasets analyzed during the current study are available in the Gene Expression Omnibus repository under accession numbers: GSEXXX, GSEXXX…
+The sequencing datasets analyzed during the current study are available in the Gene Expression Omnibus repository under accession numbers: GSE263833, GSE264113, GSE264105, GSE264110, GSE299231, GSE299094
 
 **R scripts**:
 
